@@ -1,0 +1,37 @@
+# SAT-SA detector rule pack — all thresholds in ONE auditable place.
+# Changing this file changes findings; its SHA-256 is logged to the audit
+# ledger on every run (model_version event), so a CSE disputing a finding
+# can be shown the exact config that produced it.
+version: v0.2.0-rules
+
+E1_sla_cliff:
+  rule_id: SAT-E1
+  last_window_frac: 0.10      # "final 10% of SLA window"
+  flag_threshold: 0.30        # flag if more than 30% of closures land there
+  high_threshold: 0.45        # ...high severity above 45%
+  ks_alpha: 0.05              # Kolmogorov-Smirnov vs uniform handling, supporting evidence
+
+E2_escalation_violation:
+  rule_id: SAT-E2
+  severities: [critical, high]
+  tier: Tier-1
+  min_violations: 3           # isolated one-offs are noise; patterns are signal
+  min_rate: 0.15
+
+E3_fast_close:
+  rule_id: SAT-E3/E6
+  fast_close_min: 15          # high/critical closed within 15 min
+  high_rate_threshold: 0.15
+
+E4_duplicate_notes:
+  rule_id: SAT-E4
+  method: tfidf-cosine       # upgrade path: minimlm-cosine (see satsa/embeddings.py)
+  sim_threshold: 0.85
+  min_rate: 0.10
+
+E5_repeat_asset:
+  rule_id: SAT-E5
+  repeat_min: 3
+  min_hot: 2                  # needs >=2 high/critical going nowhere ...
+  vol_min: 6                  # ... or >=6 low-severity recurrences (hygiene note only)
+  high_groups_threshold: 3

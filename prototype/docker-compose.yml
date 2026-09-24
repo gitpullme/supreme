@@ -1,0 +1,19 @@
+# Air-gap compose: no external network required at runtime.
+# Build on connected host:  docker compose build
+# Export:                   docker save satsa-api | gzip > satsa-api.tar.gz
+# Offline media -> NCIIPC host, then: docker load < satsa-api.tar.gz && docker compose up -d
+# Scale-up path: replace `db` volume with Postgres (SQL is portable, one env var).
+services:
+  api:
+    build: .
+    image: satsa-api:v0.3.0
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - satsa-data:/satsa/data
+    environment:
+      - SATSA_DB=/satsa/data/satsa.duckdb
+    restart: unless-stopped
+
+volumes:
+  satsa-data:

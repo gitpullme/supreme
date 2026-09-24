@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+frontend/dist/
+
+# Generated artifacts (rebuilt by `python run.py` in ~30s)
+*.duckdb
+results.json
+trends.json
+dashboard.html
+ledger.jsonl
+
+# Vendored ML model (~92MB, re-downloadable; see satsa/embeddings.py)
+models/
+
+# Logs / scratch
+*.log
+run*.txt
