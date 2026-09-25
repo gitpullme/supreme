@@ -3,9 +3,12 @@
 # A technique expected-but-never-observed is a supervisory finding, not a
 # SOC tuning note (DeTT&CT reasoning repurposed for oversight).
 # Rationale per row is inline so a supervisor can challenge or extend it.
-internet-facing: [T1190, T1133]   # exploit-public-facing-app, external-remote-services
+# T1558/T1071 are observed by NO entity in current submissions: C1 routes
+# them to X2 (sector dark spot) instead of flagging every entity, since a
+# technique nobody sees is a systemic gap, not an entity failure.
+internet-facing: [T1190, T1133, T1071]  # + application-layer-protocol abuse
 mail-gateway: [T1566]             # phishing must be seen where mail enters
-ad-server: [T1003, T1078]         # credential-dumping, valid-accounts abuse
+ad-server: [T1003, T1078, T1558]  # + Kerberos-ticket abuse on domain controllers
 edr-covered: [T1059, T1486]       # command-shell, ransomware-class impact
 db-server: [T1021]                # remote-services movement toward crown jewels
 workstation: [T1059]              # scripting-interpreter abuse on endpoints

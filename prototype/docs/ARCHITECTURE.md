@@ -20,11 +20,18 @@ CSE submissions (CSV/JSON/DB: alerts, cases, assets, escalations)
         ▼  SHA-256 logged to hash-chain ledger
 ┌──────────────────────┐  ┌──────────────────────┐
 │ EXECUTION-GAP ENGINE │  │ NEGATIVE-SPACE ENGINE│
-│ E1 SLA-cliff (+KS)   │  │ C1 ATT&CK cover-gap  │
+│ E1 SLA-cliff (+KS)   │  │ C1 cover-gap (peer)  │
 │ E2 escalation logic  │  │ C2 silent Tier-1     │
-│ E3 fast-close (+E6)  │  │ C3 volume-drop (z)   │
+│ E3 fast-close        │  │ C3 volume-drop (z)   │
 │ E4 dup-note NLP      │  │ C4 peer outlier      │
-│ E5 repeat-no-remedy  │  │                      │
+│ E5 repeat-no-remedy  │  │ C5 decay curve       │
+│ E6 throughput ceiling│  │ C6 inventory drift   │
+│ E7 evidentiary hollow│  │ C7 red-team reconcile│
+│ E8 escalation theatre│  │                      │
+│ E9 bulk burst (60s)  │  │ META FORENSICS:      │
+│ E10 downgrade audit  │  │ X1 digit forensics   │
+│ E11 hot-potato graph │  │ X2 sector dark spots │
+│ E12 audit calendar   │  │                      │
 └──────────┬───────────┘  └──────────┬───────────┘
            ▼                         ▼
    EIS (noisy-OR)              CAS (noisy-OR)   ← satsa/scoring.py

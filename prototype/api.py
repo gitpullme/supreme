@@ -104,7 +104,15 @@ def audit():
 
 @app.get("/api/validate")
 def validate_ep():
-    return _results()["metrics"]
+    r = _results()
+    return {**r["metrics"], "sector_findings": r.get("sector_findings", [])}
+
+
+@app.get("/api/sector")
+def sector_ep():
+    r = _results()
+    return {"count": len(r.get("sector_findings", [])),
+            "findings": r.get("sector_findings", [])}
 
 
 @app.get("/api/trends")

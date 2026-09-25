@@ -24,7 +24,7 @@ def main():
     from satsa.config import load as load_config
 
     k = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-    alerts, cases, assets, _, _ = generate(seed=42)
+    alerts, cases, assets, _, _, _ = generate(seed=42)
     n0 = len(alerts)
 
     A, C, S = [], [], []
@@ -52,7 +52,7 @@ def main():
     init_and_ingest(DB, A, C, S)
     t_ing = time.perf_counter() - t
     t = time.perf_counter()
-    flags, signals = run_all_detectors(A, C, S, EXPECTED_MAP, cfg)
+    flags, signals, _ = run_all_detectors(A, C, S, EXPECTED_MAP, cfg)
     scores = score_entities(signals)
     t_det = time.perf_counter() - t
     n_ent = len(scores)

@@ -40,7 +40,7 @@ No internet, no GPU, no API keys at runtime. Deterministic seed — same numbers
 - `satsa/generator.py` — seeded synthetic CSE submissions + ground truth (`gaming_level` for trends)
 - `satsa/store.py` — CSV/JSON → DuckDB + ingestion SHA-256
 - `satsa/realdata.py` — real CSE column-mapping + manual-finding ground-truth loader
-- `satsa/detectors.py` — engines E1–E5 / C1–C4 (rule_id on every flag)
+- `satsa/detectors.py` — engines E1–E12 / C1–C7 / X1–X2 (rule_id on every flag)
 - `satsa/config.py` + `rules/detectors.yaml` — audited, hashed rule pack
 - `satsa/scoring.py` — EIS/CAS noisy-OR with exact-sum contributions
 - `satsa/explain.py` — XGBoost + SHAP (explains, never detects)

@@ -99,8 +99,18 @@ def shap_panel(explanations: dict | None) -> str:
             f"<ul>{''.join(items)}</ul></div>")
 
 
+def sector_panel(sector: list | None) -> str:
+    if not sector:
+        return ""
+    items = "".join(
+        f"<li><b>[{f['rule_id']}]</b> {f['title']}<br>"
+        f"<span class='ev'>{f['evidence']}</span></li>" for f in sector)
+    return (f"<div class='card'><h2>Sector dark spots (X2 — portfolio level, "
+            f"no single-entity audit could surface these)</h2><ul>{items}</ul></div>")
+
+
 def build_dashboard_html(scores, flags, signals, metrics, ledger_tail,
-                         trends=None, explanations=None) -> str:
+                         trends=None, explanations=None, sector=None) -> str:
     rows = []
     for ent in sorted(scores):
         s = scores[ent]
@@ -143,6 +153,7 @@ ranking: {' → '.join(metrics['ranked'])}</div></header><main>
 <div class='card'><img src='data:image/png;base64,{cliff_chart(signals)}'></div>
 <div class='card'><img src='data:image/png;base64,{trend_chart(trends)}'></div>
 {shap_panel(explanations)}
+{sector_panel(sector)}
 <div class='card'><h2>Validation vs ground truth (stand-in for manual review)</h2><ul>{checks}</ul>
 <div>precision <b>{metrics['precision']}</b> · recall <b>{metrics['recall']}</b> ·
 tool top-3: <b>{', '.join(metrics['tool_top3'])}</b> · manual top-3: <b>{', '.join(metrics['manual_top3'])}</b></div></div>

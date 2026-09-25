@@ -36,24 +36,31 @@ def validate(scores: dict, flags: dict, ground_truth: dict, top_n: int = 3) -> d
     risky_above_clean = all(ranked.index(e) < min(ranked.index(c) for c in clean)
                             for e in entities if true_risky[e]) if clean else True
 
-    # pattern -> detector expectation
+    # pattern -> detector expectations (lists: every listed rule must fire).
+    # Cross-window findings (E12/C5/C6/C7) are merged into flags by run.py.
     rule_ids = {e: {f["rule_id"] for f in flags.get(e, [])} for e in entities}
     expectations = {
-        "CSE-002": "SAT-E1", "CSE-003": "SAT-E4", "CSE-004": "SAT-C2",
-        "CSE-005": "SAT-E2", "CSE-001": None,  # clean: expect no high/critical
+        "CSE-002": ["SAT-E1", "SAT-E9", "SAT-X1", "SAT-E12"],
+        "CSE-003": ["SAT-E4", "SAT-E6", "SAT-E7", "SAT-E11"],
+        "CSE-004": ["SAT-C2", "SAT-C6", "SAT-C7"],
+        "CSE-005": ["SAT-E2", "SAT-E8", "SAT-E10"],
+        "CSE-001": None,  # clean: expect no high/critical flags
     }
     pattern_checks = {}
-    for ent, want in expectations.items():
-        if want is None:
+    for ent, wants in expectations.items():
+        if wants is None:
             bad = [f for f in flags.get(ent, [])
                    if f["severity"] in ("high", "critical")]
             pattern_checks[ent] = {"expected": "no high/critical flags",
                                    "pass": len(bad) == 0,
                                    "fired": sorted(rule_ids.get(ent, set()))}
         else:
-            pattern_checks[ent] = {"expected": want,
-                                   "pass": any(want in r for r in rule_ids.get(ent, set())),
-                                   "fired": sorted(rule_ids.get(ent, set()))}
+            fired = rule_ids.get(ent, set())
+            missing = [w for w in wants if not any(w in r for r in fired)]
+            pattern_checks[ent] = {"expected": wants,
+                                   "pass": len(missing) == 0,
+                                   "missing": missing,
+                                   "fired": sorted(fired)}
 
     return {"precision": round(precision, 3), "recall": round(recall, 3),
             "tp": tp, "fp": fp, "fn": fn,

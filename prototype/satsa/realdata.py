@@ -12,11 +12,15 @@ from __future__ import annotations
 
 import pandas as pd
 
-ALERT_COLS = ["alert_id", "entity_id", "severity", "asset_id", "technique_id",
-              "created_at", "closed_at", "sla_hours", "escalated", "status",
-              "handling_minutes", "criticality", "role"]
+ALERT_COLS = ["alert_id", "entity_id", "orig_severity", "severity", "asset_id",
+              "technique_id", "created_at", "closed_at", "sla_hours",
+              "escalated", "status", "handling_minutes", "analyst",
+              "reported_minutes", "criticality", "role"]
 CASE_COLS = ["case_id", "entity_id", "alert_id", "note", "investigator", "closed_at"]
-ASSET_COLS = ["asset_id", "entity_id", "criticality", "role"]
+ASSET_COLS = ["asset_id", "entity_id", "criticality", "role", "status"]
+HANDOFF_COLS = ["handoff_id", "alert_id", "entity_id", "analyst", "ts"]
+ESC_COLS = ["esc_id", "alert_id", "entity_id", "actor",
+            "opened_at", "closed_at", "outcome"]
 
 
 def map_columns(df: pd.DataFrame, mapping: dict, required: list) -> pd.DataFrame:
@@ -33,6 +37,10 @@ def map_columns(df: pd.DataFrame, mapping: dict, required: list) -> pd.DataFrame
             pd.to_datetime(out["closed_at"], format="mixed")
             - pd.to_datetime(out["created_at"], format="mixed")
         ).dt.total_seconds() / 60.0
+    if "orig_severity" in required and "orig_severity" not in mapping:
+        out["orig_severity"] = out["severity"]  # no downgrade history: assume as-seen
+    if "reported_minutes" in required and "reported_minutes" not in mapping:
+        out["reported_minutes"] = out["handling_minutes"]
     out["escalated"] = out["escalated"].astype(bool)
     return out
 
@@ -42,7 +50,8 @@ def _default(col: str, n: int):
     return {
         "technique_id": "UNKNOWN", "criticality": "Tier-3", "role": "workstation",
         "sla_hours": 24, "escalated": False, "status": "closed",
-        "investigator": "unknown", "note": "",
+        "investigator": "unknown", "analyst": "unknown", "note": "",
+        "outcome": "genuine",
     }.get(col, np.nan)
 
 

@@ -72,21 +72,40 @@ with both components still visible — never a hidden blend.
 ### Execution-gap engine (is work real?)
 | ID | Detector | Signal | PS use case |
 |----|----------|--------|-------------|
-| E1 | SLA-cliff clustering | closures statistically pile up just before SLA deadline (histogram + KS test vs uniform) — classic metric-gaming signature | viii, REQ 7 |
-| E2 | Escalation-logic violation | severity=critical/high AND asset criticality=Tier-1 AND escalation=NULL → explicit rule violation | iii, REQ 4 |
+| E1 | SLA-cliff clustering (+KS vs uniform) | closures statistically pile up just before SLA deadline (histogram + KS test vs uniform) — classic metric-gaming signature | viii, REQ 7 |
+| E2 | Escalation-logic violation | severity=critical/high AND asset criticality=Tier-1 AND escalation=NULL → explicit rule violation. Uses ORIGINAL severity so quiet downgrades (E10) can't hide emergencies | iii, REQ 4 |
 | E3 | Fast-close | high/critical severity closed in < N min (e.g. ≤15 min) with no escalation | i, REQ 4 |
 | E4 | Copy-paste investigation NLP | near-duplicate case notes across *different* cases via embedding cosine similarity (prod: MiniLM; prototype: TF-IDF — same interface, offline) | vii, REQ 7 |
 | E5 | Repeat-asset no-remediation | same asset + same ATT&CK technique re-fires ≥K times with no remediation/escalation record | ii, REQ 4 |
-| E6 | ATT&CK-severity cross-ref | technique severity (e.g. T1486 ransomware-class) vs handling time/escalation — "T1486 closed in 90s, no escalation" is citable | i + iii |
+| E6 | Throughput implausibility | hot closures per analyst-shift vs human-plausible ceiling (e.g. 45 hot in one 8h shift) — volume no individual ticket betrays | viii, REQ 7 |
+| E7 | Evidentiary density | NER-style scan for IPs/hashes/hostnames/CVEs/alert-refs; hot notes with zero artifacts = hollow prose | iv, REQ 4 |
+| E8 | Escalation theatre | same-actor escalation open→reverse inside 120s — performative compliance | iii, REQ 4 |
+| E9 | Bulk-closure burst | sliding 60s window: ≥20 unrelated closures (baseline ~0.003) = mass rubber-stamp | viii, REQ 7 |
+| E10 | Severity downgrade audit | orig-hot rarely-benign techniques (T1486/T1003/T1190) relabelled cold pre-closure | viii, REQ 7 |
+| E11 | Hot-potato reassignment | alert bounced across ≥4 analysts inside 90 min — ownership avoidance | vii, REQ 7 |
+| E12 | Audit-calendar correlation | metrics improve during assessment week and revert after (pre/during/post windows) | viii, REQ 7, 16 |
+
+> ID note: the narrative workflow doc (PSwithSOL §Step-4) describes E2–E5 with
+> different prose aliases (copy-paste, rubber-stamp, emergencies, triage). The
+> normative IDs are §2.4's: code E1–E5 are the ORIGINAL five (unchanged since v0),
+> E6–E12 are the forensic layer. Step-4's E2–E5 labels are descriptive, not IDs.
 
 ### Negative-space engine (what's quietly missing?)
 | ID | Detector | Signal | PS use case |
 |----|----------|--------|-------------|
-| C1 | ATT&CK coverage-gap map | from asset/control inventory derive *expected* detectable techniques (internet-facing → T1190; mail gateway → phishing T1566; AD → T1003…); zero alerts ever on an expected technique = concrete gap (DeTT&CT idea, repurposed for supervision) | vi, REQ 6 |
-| C2 | Silent-asset detection | critical asset (Tier-1) with zero alerts over full window, risk-weighted by criticality | iv, REQ 6 |
-| C3 | Time-series blind spot | per-entity seasonal baseline (prod: STL/Prophet; prototype: rolling z-score) flags unexplained volume drops — usually a dead log source | iv, viii, REQ 7 |
-| C4 | Peer-baseline outlier | cluster entities by sector/size/asset profile; expected alert-volume/category bands per cluster; flag entities far outside peer norms (low *or* high) | v, ix, REQ 8 |
-| C5 | Missing-escalation workload anomaly | escalation rate inconsistent with severity mix vs peers | ix, REQ 7 |
+| C1 | ATT&CK coverage gap (peer-conditioned) | expected-but-never-observed technique where ≥1 PEER observes it (proves detectability); sector-wide darkness routes to X2 instead — never flag one entity for what nobody sees | vi, REQ 6 |
+| C2 | Silent-asset detection | critical asset (Tier-1) with zero alerts over full window, risk-weighted by criticality × days-silent | iv, REQ 6 |
+| C3 | Volume-drop blind spot | per-entity daily counts vs trailing baseline (z-score; STL/Prophet later) | iv, viii, REQ 7 |
+| C4 | Peer-baseline outlier | cluster entities; expected volume/category bands; flag outside norms | v, ix, REQ 8 |
+| C5 | Remediation decay curve | recurring pair fires flat/rising across ≥3 windows with <10% ever escalated — acknowledged, never fixed | ii, REQ 6, 16 |
+| C6 | Inventory drift | assets vanished without decommission record; new assets with zero monitoring | iv, REQ 6, 16 |
+| C7 | Red-team reconciliation | NCIIPC-known exercise technique+window with zero alerts = PROVEN gap (critical) | vi, REQ 6 |
+
+### Meta-level forensics
+| ID | Detector | Signal |
+|----|----------|--------|
+| X1 | Digit-distribution forensics | round-number clustering in reported times + Benford chi-square — catches smoothed/fabricated submissions (data-integrity, not SOC failure) |
+| X2 | Sector dark-spot meta-analysis | technique expected across a sector, seen by none → portfolio-level finding no single-entity audit could surface |
 
 ## 5. Stack (locked — 100% free, 100% offline-capable)
 
@@ -145,8 +164,13 @@ with both components still visible — never a hidden blend.
 
 E1→{REQ7,REQ9,REQ10}→{viii}→EIS · E2→{REQ4,REQ9,REQ10}→{iii}→EIS ·
 E3→{REQ4,REQ9,REQ10}→{i}→EIS · E4→{REQ7,REQ9,REQ10}→{vii}→EIS ·
-E5→{REQ4,REQ9,REQ10}→{ii}→EIS · E6→{REQ4,REQ11}→{i,iii}→EIS ·
+E5→{REQ4,REQ9,REQ10}→{ii}→EIS · E6→{REQ7,REQ9}→{viii}→EIS ·
+E7→{REQ4,REQ9}→{iv}→EIS · E8→{REQ4,REQ9}→{iii}→EIS ·
+E9→{REQ7,REQ9}→{viii}→EIS · E10→{REQ7,REQ9}→{viii}→EIS ·
+E11→{REQ7,REQ9}→{vii}→EIS · E12→{REQ7,REQ16}→{viii}→EIS ·
 C1→{REQ6,REQ9,REQ10}→{vi}→CAS · C2→{REQ6,REQ9,REQ10}→{iv}→CAS ·
 C3→{REQ6,REQ7,REQ16}→{iv,viii}→CAS · C4→{REQ8,REQ9}→{v,ix}→CAS ·
-C5→{REQ7,REQ9}→{ix}→CAS/EIS-shared.
+C5→{REQ6,REQ16}→{ii}→CAS · C6→{REQ6,REQ16}→{iv}→CAS ·
+C7→{REQ6,REQ9}→{vi}→CAS · X1→{REQ7,REQ11}→{viii}→EIS ·
+X2→{REQ8,REQ16}→{vi}→sector-level.
 Dashboards+drill-down→{REQ11–17}. Ledger→{REQ11,12,13,14}.

@@ -2,7 +2,7 @@
 # Changing this file changes findings; its SHA-256 is logged to the audit
 # ledger on every run (model_version event), so a CSE disputing a finding
 # can be shown the exact config that produced it.
-version: v0.2.0-rules
+version: v0.4.0-rules
 
 E1_sla_cliff:
   rule_id: SAT-E1
@@ -19,7 +19,7 @@ E2_escalation_violation:
   min_rate: 0.15
 
 E3_fast_close:
-  rule_id: SAT-E3/E6
+  rule_id: SAT-E3
   fast_close_min: 15          # high/critical closed within 15 min
   high_rate_threshold: 0.15
 
@@ -35,3 +35,60 @@ E5_repeat_asset:
   min_hot: 2                  # needs >=2 high/critical going nowhere ...
   vol_min: 6                  # ... or >=6 low-severity recurrences (hygiene note only)
   high_groups_threshold: 3
+
+# ---- extended execution-gap forensics (PSwithSOL section 2.4) ----
+E6_throughput:
+  rule_id: SAT-E6
+  max_hot_per_shift: 25       # calibrated to submission scale; real SOCs use ~150/8h
+  shift_hours: 8
+E7_evidentiary_density:
+  rule_id: SAT-E7
+  min_artifacts: 1            # high-sev note with zero technical artifacts = hollow
+  hollow_rate_threshold: 0.20
+  min_hot_notes: 5
+E8_escalation_theatre:
+  rule_id: SAT-E8
+  reverse_window_sec: 120     # same-actor open->reverse inside 2 min = performative
+  min_events: 2
+E9_bulk_burst:
+  rule_id: SAT-E9
+  window_sec: 60
+  min_closures: 20            # >=20 unrelated closures in 60s (baseline ~0.003)
+  min_assets: 10
+  min_techniques: 3
+E10_downgrade:
+  rule_id: SAT-E10
+  min_downgrades: 5
+  min_rate: 0.25              # of orig-hot, rarely-benign alerts
+  rarely_benign: [T1486, T1003, T1190]  # downgrading THESE is itself a signal
+E11_hot_potato:
+  rule_id: SAT-E11
+  min_analysts: 4
+  max_span_min: 90
+  min_cases: 2
+E12_audit_theatre:
+  rule_id: SAT-E12
+  window_days: 14             # pre vs assessment-week vs post comparison
+  improvement_margin: 0.25    # assessment-week cliff/fast rate must beat pre by this
+  min_cases: 10
+
+# ---- extended negative space ----
+C5_remediation_decay:
+  rule_id: SAT-C5
+  min_windows: 3
+  min_total: 12               # pair must matter: >=12 firings, flat/rising, never remediated
+C6_inventory_drift:
+  rule_id: SAT-C6
+C7_redteam:
+  rule_id: SAT-C7
+
+# ---- meta-level forensics ----
+X1_digit_forensics:
+  rule_id: SAT-X1
+  round_share_threshold: 0.30 # frac of reported_minutes divisible by 10 (natural ~0.10)
+  chi2_alpha: 0.05            # Benford chi-square, supporting evidence only
+X2_sector_darkspot:
+  rule_id: SAT-X2
+  min_sector_size: 2
+  min_expecting_entities: 2   # technique expected by >=2 entities, seen by none
+

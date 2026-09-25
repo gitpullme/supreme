@@ -22,34 +22,37 @@
 **Definition of done:** `python run.py` generates data → runs engines → prints
 EIS/CAS table + precision/recall → serves dashboard at :8000. No internet, no GPU.
 
-## Phase 1 — Execution-gap engine hardening (Days 2–3)
+## Phase 1 — Execution-gap engine hardening ✅ DONE (v0.4)
 
 1. **E1 SLA-cliff:** histogram of (SLA_deadline − closed_at) in last-10% bucket +
    KS test vs uniform; report cliff-ratio + p-value. Visual: cliff histogram per entity.
-2. **E2/E3/E6 rule pack:** YAML-driven rules (`rules/escalation.yaml`) with IDs
-   `SAT-E2-…`; every hit stores alert_ids + asset + technique + handling-minutes.
-3. **E4 NLP upgrade path:** v0 TF-IDF cosine ≥0.85 across different cases.
-   Swap to `all-MiniLM-L6-v2` ONNX (offline, CPU) behind identical
-   `flag_duplicate_notes()` signature; keep TF-IDF as fallback + benchmark both.
-4. **E5 repeat-asset:** group (asset, technique) windows; flag ≥3 re-fires with
-   zero remediation/escalation; link to case IDs.
-5. Add per-flag evidence bundles: `{rule_id, record_ids, observed, expected, technique}`.
+2. **E2/E3 rule pack:** YAML-driven rules (`rules/detectors.yaml`) with IDs
+   `SAT-E1…`; every hit stores alert_ids + asset + technique + handling-minutes.
+   E2 reads ORIGINAL severity so quiet downgrades (E10) can't hide emergencies.
+3. **E4 NLP:** TF-IDF cosine ≥0.85 across different cases (MiniLM cosine REJECTED
+   by validation gate 2026-09 — scored 1.00 on clean; TF-IDF retained).
+4. **E5 repeat-asset:** hot (asset, technique) re-fires with zero remediation.
+5. **E6–E12 forensic layer:** throughput ceilings, evidentiary-density NER scan,
+   escalation-theatre (<120s self-reversal), 60s bulk-burst detector (resolution-proof
+   epoch math — pandas mixed-ISO returns non-nano!), downgrade auditing against
+   rarely-benign list, hot-potato handoff graphs, audit-calendar pre/during/post
+   with absolute gates (relative-only improvement false-fires on ~zero baselines).
 
-## Phase 2 — Negative-space engine hardening (Days 3–4) — the differentiator
+## Phase 2 — Negative-space engine hardening ✅ DONE (v0.4)
 
 1. **C1 coverage map:** `attck/expected_map.yaml` (asset_role → expected
-   techniques, e.g. `internet-facing → [T1190,T1133]`, `mail-gateway → [T1566]`,
-   `ad-server → [T1003,T1078]`, `edr-covered → [T1059,T1486]`). Zero-hit expected
-   technique = gap with citation. Steal DeTT&CT's scoring idea, supervisor flavour.
+   techniques). PEER-CONDITIONED: gaps count only when ≥1 peer observes the
+   technique (proves detectability); sector-wide darkness routes to X2.
 2. **C2 silent assets:** Tier-1 assets with 0 alerts over window; weight by
    criticality × days-silent.
-3. **C3 blind spots:** per-entity daily counts → rolling mean/σ z-score;
-   drop < −2.5σ for ≥3 days = blind-spot flag. Upgrade to STL/Prophet later;
-   keep z-score as explainable baseline judges can read.
-4. **C4 peer baselines:** cluster by (sector, size_bin, asset_mix); per-cluster
-   median/IQR bands for volume + category mix; flag outside 1.5×IQR with peer table.
-5. Negative-space flags ALWAYS show "expected vs observed" — absence is only
-   convincing next to an explicit expectation.
+3. **C3 blind spots:** per-entity daily counts → trailing z-score; last-7 blackout
+   detection (calendar-reindexed so zero-days count).
+4. **C4 peer baselines:** volume z-score vs cohort; flag |z| > 1.5.
+5. **C5 decay curves:** pair counts across ≥3 windows, slope ≥0, <10% escalated.
+6. **C6 inventory drift:** vanished-without-paperwork + unmonitored-new assets
+   across successive submissions.
+7. **C7 red-team reconciliation:** known exercise technique+window, zero alerts =
+   proven gap (critical).
 
 ## Phase 3 — Scoring + explainability (Day 4)
 
@@ -115,30 +118,36 @@ EIS/CAS table + precision/recall → serves dashboard at :8000. No internet, no 
   silent-asset → show evidence + ledger → validation numbers. No live coding.
 - GitHub link + demo video.
 
-## Prototype v0 — what was built NOW (in `prototype/`)
+## Prototype v0.4 — what is built NOW (in `prototype/`)
 
 ```
 prototype/
-  requirements.txt      pandas numpy scikit-learn duckdb fastapi uvicorn matplotlib
+  requirements.txt      pandas numpy sklearn scipy pyyaml duckdb fastapi uvicorn matplotlib xgboost shap
   satsa/
-    __init__.py
-    generator.py        5 CSEs × seeded pathologies + ground truth
-    store.py            CSV/JSON → DuckDB (alerts/cases/assets) + ingestion hash
-    detectors.py        E1–E5 + C1–C4 (E6 folded into E3+technique tag)
-    scoring.py          EIS/CAS 0–100, transparent weights
+    generator.py        5 CSEs × seeded pathologies + ground truth (dual-rng draw discipline)
+    store.py            CSV/JSON → DuckDB (alerts/cases/assets/handoffs/escalations) + hash
+    detectors.py        E1–E12 / C1–C7 / X1–X2 (rule_id on every flag)
+    scoring.py          EIS/CAS noisy-OR with exact-sum contributions
     ledger.py           SHA-256 hash chain (JSONL)
-    validate.py         precision/recall + top-N overlap vs ground truth
-  api.py                JSON API (frozen contracts for React)
-  dashboard.py          offline HTML dashboard (matplotlib base64, no CDN)
-  run.py                one command: generate → ingest → detect → score → validate → serve
-  README.md
+    validate.py         precision/recall + top-N overlap + 14 pattern checks
+    explain.py          XGBoost+SHAP (explains, never detects)
+    realdata.py         real CSE column-mapping + manual-finding loader
+  rules/detectors.yaml  audited, hashed rule pack (v0.4.0)
+  attck/expected_map.yaml
+  api.py                JSON API + legacy dashboard + React static serving
+  frontend/             React+TS+Recharts phosphor-console SPA
+  run.py                one command: 3 dated windows → detect → merge → validate → serve
+  perf_bench.py         measured: 58k alerts/s ingest, 0.12 s/entity
+  Dockerfile / docker-compose.yml / start_dashboard.bat
+  docs/                 ARCHITECTURE, HARDWARE, DEMO_SCRIPT, SLIDES
 ```
 
 Entity pathologies (seeded, labelled):
-CSE-001 clean control · CSE-002 SLA-gamer (closures in last 5% of SLA) ·
-CSE-003 copy-paste investigator (duplicate notes) + fast-close ·
-CSE-004 silent critical assets + missing ATT&CK coverage ·
-CSE-005 critical-no-escalation + repeat-asset-no-remediation.
+CSE-001 clean control · CSE-002 SLA-gamer + bursts + rounded reports + audit-theatre ·
+CSE-003 copy-paste + fast-close + speed-demon + hollow notes + hot-potato ·
+CSE-004 silent assets + coverage gaps + blackout + drift + red-team miss ·
+CSE-005 no-escalation + repeat + theatre + downgrades (+decay).
+X2: banking + energy sector dark spots (T1071/T1558).
 
 ## Brutal truths (why this wins)
 

@@ -86,10 +86,12 @@ def e1_sla_cliff(alerts: pd.DataFrame, cfg: dict | None = None):
 def e2_escalation_violation(alerts: pd.DataFrame, cfg: dict | None = None):
     c = (cfg or CFG)["E2_escalation_violation"]
     out, signals = [], {}
+    # ORIGINAL severity: quietly downgrading a critical (E10) must not hide it here.
     for ent, g in alerts.groupby("entity_id"):
-        crit = g[(g.severity.isin(c["severities"])) &
-                 (g.criticality == c["tier"]) & (~g.escalated.astype(bool))]
-        denom = max(1, len(g[(g.severity.isin(c["severities"])) & (g.criticality == c["tier"])]))
+        sev = g["orig_severity"] if "orig_severity" in g else g["severity"]
+        is_hot = sev.isin(c["severities"])
+        crit = g[is_hot & (g.criticality == c["tier"]) & (~g.escalated.astype(bool))]
+        denom = max(1, int((is_hot & (g.criticality == c["tier"])).sum()))
         rate = len(crit) / denom
         signals[ent] = {"esc_violation_rate": rate, "esc_violations": len(crit)}
         # Isolated one-offs happen; a *pattern* of un-escalated criticals is the signal.
@@ -185,8 +187,39 @@ def e5_repeat_asset(alerts: pd.DataFrame, cfg: dict | None = None):
     return out, signals
 
 
-def c1_coverage_gap(alerts: pd.DataFrame, assets: pd.DataFrame, expected_map: dict):
+def _sector_dark_spots(alerts: pd.DataFrame, assets: pd.DataFrame,
+                       expected_map: dict, sectors: dict | None,
+                       min_expecting: int = 2) -> dict:
+    """Techniques expected by >=min_expecting entities' roles but observed by
+    NONE of them. These are sector dark spots (X2), NOT entity gaps (C1) —
+    flagging one entity for what nobody can see would be a false positive."""
+    if not sectors:
+        return {}
+    obs = alerts.groupby("entity_id").technique_id.apply(set).to_dict()
+    ent_roles = assets.groupby("entity_id").role.apply(set).to_dict()
+    ent_expected = {e: {t for r in roles for t in expected_map.get(r, [])}
+                    for e, roles in ent_roles.items()}
+    dark: dict = {}  # (sector, technique) -> [expecting entities]
+    sec_ents: dict = {}
+    for e, s in sectors.items():
+        sec_ents.setdefault(s, []).append(e)
+    for s, ents in sec_ents.items():
+        for t in sorted({t for e in ents for t in ent_expected.get(e, set())}):
+            expecting = [e for e in ents if t in ent_expected.get(e, set())]
+            if len(expecting) >= min_expecting and not any(
+                    t in obs.get(e, set()) for e in ents):
+                dark[(s, t)] = expecting
+    return dark
+
+
+def c1_coverage_gap(alerts: pd.DataFrame, assets: pd.DataFrame, expected_map: dict,
+                    cfg: dict | None = None, sectors: dict | None = None):
     out, signals = [], {}
+    dark = _sector_dark_spots(alerts, assets, expected_map, sectors)
+    dark_by_ent = {}
+    for (s, t), ents in dark.items():
+        for e in ents:
+            dark_by_ent.setdefault(e, set()).add(t)
     obs = alerts.groupby("entity_id").technique_id.apply(set).to_dict()
     for ent, ag in assets.groupby("entity_id"):
         roles = set(ag.role.unique())
@@ -194,13 +227,20 @@ def c1_coverage_gap(alerts: pd.DataFrame, assets: pd.DataFrame, expected_map: di
         for r in roles:
             expected.update(expected_map.get(r, []))
         seen = obs.get(ent, set())
-        gaps = sorted(expected - seen)
+        # Only ACTIONABLE gaps count: the technique must be observed by >=1 peer
+        # (proves detectability in this cohort). Sector-wide darkness is X2.
+        peers_seen = set()
+        for e2, s2 in obs.items():
+            if e2 != ent:
+                peers_seen |= s2
+        gaps = sorted((expected - seen - dark_by_ent.get(ent, set())) & peers_seen)
+        actionable = (expected - dark_by_ent.get(ent, set()))
         signals[ent] = {"coverage_gaps": gaps, "coverage_gap_frac":
-                        (len(gaps) / max(1, len(expected)))}
+                        (len(gaps) / max(1, len(actionable)))}
         if gaps:
             out.append(_flag("SAT-C1", ent, "ATT&CK coverage gap: expected technique never observed",
                              "high" if len(gaps) >= 2 else "medium",
-                             f"Asset inventory implies detectability of {sorted(expected)}, but {gaps} never fired once — monitoring blind spot (DeTT&CT-style reasoning, supervisory use).",
+                             f"Asset inventory implies detectability of {sorted(expected)}, but {gaps} never fired once — while peers DO observe them (detectability proven). Sector-dark techniques are reported as X2, not here.",
                              f"never observed: {gaps}", f"expected: {sorted(expected)}", []))
     return out, signals
 
@@ -268,15 +308,437 @@ def c4_peer_outlier(alerts: pd.DataFrame):
     return out, signals
 
 
-def run_all_detectors(alerts, cases, assets, expected_map, cfg=None):
-    """Returns (flags_by_entity, signals_by_entity). cfg = rule pack (YAML-loaded)."""
+def _orig(a: pd.DataFrame) -> pd.Series:
+    return a["orig_severity"] if "orig_severity" in a else a["severity"]
+
+
+# ================= extended execution-gap forensics (SAT-E6..E12) =================
+
+def e6_throughput(alerts: pd.DataFrame, cfg: dict | None = None):
+    """Throughput Implausibility: hot closures per analyst-shift vs ceiling."""
+    c = (cfg or CFG)["E6_throughput"]
+    out, signals = [], {}
+    a = alerts.copy()
+    a["closed"] = pd.to_datetime(a["closed_at"], format="mixed")
+    a["shift"] = (a["closed"].dt.date.astype(str) + "-S"
+                  + (a["closed"].dt.hour // c["shift_hours"]).astype(str))
+    hot = a[_orig(a).isin(["high", "critical"])]
+    cell = hot.groupby(["entity_id", "analyst", "shift"]).size()
+    worst: dict = {}
+    for (ent, analyst, shift), n in cell.items():
+        r = n / c["max_hot_per_shift"]
+        if r > worst.get(ent, (0,))[0]:
+            worst[ent] = (r, analyst, shift, int(n))
+    for ent in a.entity_id.unique():
+        ratio = worst.get(ent, (0.0, "", "", 0))[0]
+        signals[ent] = {"throughput_ratio": round(float(ratio), 2)}
+        if ratio > 1.0:
+            _, analyst, shift, n = worst[ent]
+            recs = hot[(hot.entity_id == ent) & (hot.analyst == analyst)
+                       & (hot.shift == shift)]["alert_id"].tolist()
+            out.append(_flag(c["rule_id"], ent, "Throughput implausibility: superhuman closure volume",
+                             "high",
+                             f"Analyst {analyst} closed {n} high/critical alerts in one {c['shift_hours']}h shift "
+                             f"(ceiling {c['max_hot_per_shift']}) — no human investigates at that rate.",
+                             f"{n} hot closures/shift (ratio {ratio:.1f}x)", f"<= {c['max_hot_per_shift']}/shift",
+                             recs))
+    return out, signals
+
+
+_ARTIFACT_RES = []
+def _artifact_res():
+    import re
+    global _ARTIFACT_RES
+    if not _ARTIFACT_RES:
+        _ARTIFACT_RES = [
+            re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),          # IPv4
+            re.compile(r"\b[0-9a-f]{16,64}\b", re.I),            # hash
+            re.compile(r"\bCVE-\d{4}-\d+\b", re.I),              # CVE
+            re.compile(r"\bT\d{4}\b"),                           # ATT&CK ID
+            re.compile(r"\b(?:AL\d{4,}|ALT-\d+)\b"),             # alert ref
+            re.compile(r"\b[a-z0-9][a-z0-9\-]*\.corp\b", re.I),  # hostname
+            re.compile(r"\bCHG-\d+\b", re.I),                    # change record
+        ]
+    return _ARTIFACT_RES
+
+
+def count_artifacts(note: str) -> int:
+    return sum(1 for rx in _artifact_res() if rx.search(note or ""))
+
+
+def e7_evidentiary_density(alerts: pd.DataFrame, cases: pd.DataFrame,
+                           cfg: dict | None = None):
+    """Evidentiary Density: orig-hot notes with zero technical artifacts = hollow."""
+    c = (cfg or CFG)["E7_evidentiary_density"]
+    out, signals = [], {}
+    hot_ids = set(alerts[_orig(alerts).isin(["high", "critical"])]["alert_id"])
+    for ent, g in cases.groupby("entity_id"):
+        hot = g[g.alert_id.isin(hot_ids)]
+        hollow = [r.case_id for _, r in hot.iterrows()
+                  if count_artifacts(r["note"]) < c["min_artifacts"]]
+        rate = len(hollow) / max(1, len(hot))
+        signals[ent] = {"hollow_rate": round(rate, 3), "hollow_n": len(hollow)}
+        if len(hot) >= c["min_hot_notes"] and rate > c["hollow_rate_threshold"]:
+            out.append(_flag(c["rule_id"], ent, "Evidentiarily hollow investigations",
+                             "high" if rate > 0.4 else "medium",
+                             f"{len(hollow)}/{len(hot)} high-severity notes cite ZERO technical artifacts "
+                             "(no IP, hash, hostname, CVE, alert ref) — polished prose referencing nothing concrete.",
+                             f"{rate:.0%} hollow hot notes", "concrete evidence per hot note",
+                             hollow))
+    return out, signals
+
+
+def e8_escalation_theatre(escalations: pd.DataFrame | None, cfg: dict | None = None):
+    """Escalation Theatre: same-actor open->reverse inside the 2-minute window."""
+    c = (cfg or CFG)["E8_escalation_theatre"]
+    out, signals = [], {}
+    if escalations is None or len(escalations) == 0:
+        return out, signals
+    e = escalations.copy()
+    e["dur_s"] = (pd.to_datetime(e["closed_at"], format="mixed")
+                  - pd.to_datetime(e["opened_at"], format="mixed")).dt.total_seconds()
+    for ent, g in e.groupby("entity_id"):
+        theat = g[(g.outcome == "reversed") & (g.dur_s <= c["reverse_window_sec"])]
+        rate = len(theat) / max(1, len(g))
+        signals[ent] = {"theatre_rate": round(rate, 3), "theatre_n": len(theat)}
+        if len(theat) >= c["min_events"]:
+            out.append(_flag(c["rule_id"], ent, "Escalation theatre: performative self-reversals",
+                             "high",
+                             f"{len(theat)} escalations opened and reversed by the same actor within "
+                             f"{c['reverse_window_sec']}s — compliance checkbox, not incident response.",
+                             f"{len(theat)} reversed <={c['reverse_window_sec']}s", "escalations trigger response",
+                             theat["esc_id"].tolist()))
+    return out, signals
+
+
+def e9_bulk_burst(alerts: pd.DataFrame, cfg: dict | None = None):
+    """Bulk-Closure Burst: sliding 60s window over closure timestamps."""
+    c = (cfg or CFG)["E9_bulk_burst"]
+    out, signals = [], {}
+    a = alerts.copy()
+    # Resolution-proof epoch seconds: pandas may return datetime64[us/ms/s]
+    # (NOT ns) for mixed ISO strings, where .astype(int64) is NOT nanoseconds.
+    # Timedelta floor-division is exact at every resolution.
+    a["cts"] = ((pd.to_datetime(a["closed_at"], format="mixed")
+                 - pd.Timestamp("1970-01-01")) // pd.Timedelta(seconds=1)).to_numpy()
+    W = c["window_sec"]
+    for ent, g in a.groupby("entity_id"):
+        t = np.sort(g["cts"].to_numpy())
+        best, best_j = 0, 0
+        j = 0
+        for i in range(len(t)):
+            j = max(j, i)
+            while j + 1 < len(t) and t[j + 1] - t[i] <= W:
+                j += 1
+            if j - i + 1 > best:
+                best, best_j = j - i + 1, j
+        signals[ent] = {"burst_max": int(best)}
+        if best >= c["min_closures"]:
+            win = g[(g.cts >= t[best_j] - W) & (g.cts <= t[best_j])]
+            if win.asset_id.nunique() >= c["min_assets"] and win.technique_id.nunique() >= c["min_techniques"]:
+                out.append(_flag(c["rule_id"], ent, "Bulk-closure burst: mass rubber-stamping event",
+                                 "high",
+                                 f"{len(win)} unrelated alerts ({win.asset_id.nunique()} assets, "
+                                 f"{win.technique_id.nunique()} techniques) closed inside {W}s — "
+                                 "statistically impossible as genuine triage (baseline ~0.003/60s).",
+                                 f"{len(win)} closures/{W}s", "isolated individual triage",
+                                 win["alert_id"].tolist()))
+    return out, signals
+
+
+def e10_downgrade(alerts: pd.DataFrame, cfg: dict | None = None):
+    """Severity Downgrade: orig-hot rarely-benign alerts closed as cold."""
+    c = (cfg or CFG)["E10_downgrade"]
+    out, signals = [], {}
+    for ent, g in alerts.groupby("entity_id"):
+        o = _orig(g)
+        pool = g[o.isin(["high", "critical"]) & g.technique_id.isin(c["rarely_benign"])]
+        down = pool[~pool.severity.isin(["high", "critical"])]
+        rate = len(down) / max(1, len(pool))
+        signals[ent] = {"downgrade_rate": round(rate, 3), "downgrades": len(down)}
+        if len(down) >= c["min_downgrades"] and rate > c["min_rate"]:
+            out.append(_flag(c["rule_id"], ent, "Severity downgrades deflating incident counts",
+                             "high",
+                             f"{len(down)}/{len(pool)} rarely-benign hot alerts ({sorted(pool.technique_id.unique())}) "
+                             "were relabelled cold before closure — quietly shrinking the incident count.",
+                             f"{rate:.0%} downgraded ({len(down)}/{len(pool)})",
+                             "rarely-benign techniques stay hot",
+                             down["alert_id"].tolist()))
+    return out, signals
+
+
+def e11_hot_potato(handoffs: pd.DataFrame | None, cfg: dict | None = None):
+    """Hot-Potato: alerts bounced across >=4 analysts inside 90 minutes."""
+    c = (cfg or CFG)["E11_hot_potato"]
+    out, signals = [], {}
+    if handoffs is None or len(handoffs) == 0:
+        return out, signals
+    h = handoffs.copy()
+    h["ts"] = pd.to_datetime(h["ts"], format="mixed")
+    flagged = []
+    for (ent, aid), g in h.groupby(["entity_id", "alert_id"]):
+        n_an = g.analyst.nunique()
+        span = (g.ts.max() - g.ts.min()).total_seconds() / 60.0
+        if n_an >= c["min_analysts"] and span <= c["max_span_min"]:
+            flagged.append((ent, aid, n_an, round(span, 1)))
+    by_ent: dict = {}
+    for ent, aid, n_an, span in flagged:
+        by_ent.setdefault(ent, []).append((aid, n_an, span))
+    for ent in h.entity_id.unique():
+        fl = by_ent.get(ent, [])
+        n_alerts = h[h.entity_id == ent].alert_id.nunique()
+        signals[ent] = {"hotpotato_rate": round(len(fl) / max(1, n_alerts), 3),
+                        "hotpotato_cases": len(fl)}
+        if len(fl) >= c["min_cases"]:
+            detail = ", ".join(f"{a} ({n} analysts, {s}m)" for a, n, s in fl[:8])
+            out.append(_flag(c["rule_id"], ent, "Hot-potato reassignment: ownership avoidance",
+                             "medium",
+                             f"{len(fl)} alerts bounced between >= {c['min_analysts']} analysts within "
+                             f"{c['max_span_min']} min — passed around, not investigated: {detail}.",
+                             f"{len(fl)} bounced alerts", "stable ownership",
+                             [a for a, _, _ in fl]))
+    return out, signals
+
+
+def e12_audit_theatre(alerts: pd.DataFrame, assessment_date, cfg: dict | None = None):
+    """Audit-Calendar Correlation: better during assessment week, revert after."""
+    c = (cfg or CFG)["E12_audit_theatre"]
+    out, signals = [], {}
+    if assessment_date is None:
+        for ent in alerts.entity_id.unique():
+            signals[ent] = {"audit_theatre": False}
+        return out, signals
+    A = pd.Timestamp(assessment_date)
+    W = c["window_days"]
+    a = alerts.copy()
+    created = pd.to_datetime(a["created_at"], format="mixed")
+    closed = pd.to_datetime(a["closed_at"], format="mixed")
+    window_min = a["sla_hours"].astype(float) * 60.0
+    deadline = created + pd.to_timedelta(a["sla_hours"].astype(float), unit="h")
+    a["late"] = (((deadline - closed).dt.total_seconds() / 60.0) / window_min) <= 0.10
+    a["created"] = created
+    for ent, g in a.groupby("entity_id"):
+        pre = g[(g.created >= A - pd.Timedelta(days=W)) & (g.created < A - pd.Timedelta(days=3))]
+        dur = g[(g.created >= A - pd.Timedelta(days=3)) & (g.created <= A + pd.Timedelta(days=3))]
+        post = g[(g.created > A + pd.Timedelta(days=3)) & (g.created <= A + pd.Timedelta(days=W))]
+        signals[ent] = {"audit_theatre": False}
+        if min(len(pre), len(dur), len(post)) < c["min_cases"]:
+            continue
+        r_pre, r_dur, r_post = pre.late.mean(), dur.late.mean(), post.late.mean()
+        # Relative improvement AND absolute teeth: near-zero baselines must not
+        # trigger on noise (a 3% -> 0% wobble is not audit theatre).
+        improved = (r_pre - r_dur) / max(r_pre, 1e-6) >= c["improvement_margin"]
+        reverted = (r_post - r_dur) / max(r_post, 1e-6) >= c["improvement_margin"]
+        hit = bool(improved and reverted and r_dur < r_pre
+                   and r_pre >= 0.15 and (r_pre - r_dur) >= 0.10)
+        signals[ent] = {"audit_theatre": hit, "audit_rates": [round(float(x), 3) for x in (r_pre, r_dur, r_post)]}
+        if hit:
+            out.append(_flag(c["rule_id"], ent, "Audit theatre: staged behaviour around assessment",
+                             "medium",
+                             f"Late-closure rate {r_pre:.0%} pre-assessment -> {r_dur:.0%} during -> {r_post:.0%} after. "
+                             "Good behaviour that exists only while inspectors watch is staged, not real.",
+                             f"pre {r_pre:.0%} / during {r_dur:.0%} / post {r_post:.0%}",
+                             "stable behaviour across the calendar",
+                             dur["alert_id"].tolist()))
+    return out, signals
+
+
+# ================= extended negative space (SAT-C5..C7) =================
+
+def c5_decay(window_alerts: list, cfg: dict | None = None):
+    """Remediation Decay: pair fires flat/rising across >=3 windows, never fixed."""
+    c = (cfg or CFG)["C5_remediation_decay"]
+    out, signals = [], {}
+    if len(window_alerts) < c["min_windows"]:
+        return out, signals
+    counts: dict = {}
+    esc_n: dict = {}
+    for _, df in window_alerts:
+        w = df.groupby(["entity_id", "asset_id", "technique_id"]).size()
+        e = df.groupby(["entity_id", "asset_id", "technique_id"])["escalated"].sum()
+        for k, n in w.items():
+            counts.setdefault(k, []).append(int(n))
+            esc_n[k] = esc_n.get(k, 0) + int(e[k])
+    by_ent: dict = {}
+    for (ent, aid, tech), series in counts.items():
+        if len(series) < c["min_windows"] or sum(series) < c["min_total"]:
+            continue
+        slope = float(np.polyfit(range(len(series)), series, 1)[0])
+        # A lone escalation among dozens of repeat firings is not remediation;
+        # remediation means the pair STOPS. Threshold: <10% ever escalated.
+        esc_rate = esc_n[(ent, aid, tech)] / max(1, sum(series))
+        if slope >= 0 and esc_rate < 0.10:
+            by_ent.setdefault(ent, []).append((aid, tech, series, round(slope, 2)))
+    ents = {e for lab, df in window_alerts for e in df.entity_id.unique()}
+    for ent in ents:
+        hits = by_ent.get(ent, [])
+        signals[ent] = {"decay_pairs": len(hits)}
+        if hits:
+            detail = ", ".join(f"{a}/{t} counts={s}" for a, t, s, _ in hits[:6])
+            recs = []
+            for _, df in window_alerts:
+                recs += df[(df.entity_id == ent)
+                           & df.apply(lambda r: (r.asset_id, r.technique_id) in {(a, t) for a, t, _, _ in hits},
+                                      axis=1)]["alert_id"].tolist()
+            out.append(_flag(c["rule_id"], ent, "Remediation decay: acknowledged, never fixed",
+                             "high",
+                             f"{len(hits)} alert-asset pairs keep firing flat/rising across {len(window_alerts)} windows "
+                             f"with zero remediation — the fix never happened: {detail}.",
+                             f"{len(hits)} undecayed pairs", "post-fix decline",
+                             recs))
+    return out, signals
+
+
+def c6_drift(window_assets: list, window_alerts: list, cfg: dict | None = None):
+    """Inventory Drift: vanished-without-paperwork + unmonitored-new assets."""
+    c = (cfg or CFG)["C6_inventory_drift"]
+    out, signals = [], {}
+    if len(window_assets) < 2:
+        return out, signals
+    by_ent: dict = {}
+    for (lab0, prev), (lab1, cur) in zip(window_assets[:-1], window_assets[1:]):
+        _, cur_alerts = window_alerts[[l for l, _ in window_alerts].index(lab1)]
+        cur_seen = set(cur_alerts.asset_id.unique())
+        for ent in set(prev.entity_id.unique()) | set(cur.entity_id.unique()):
+            p = prev[prev.entity_id == ent]
+            q = cur[cur.entity_id == ent]
+            p_ids = set(p[p.status != "decommissioned"]["asset_id"])
+            q_ids = set(q["asset_id"])
+            vanished = sorted(p_ids - q_ids)
+            new = sorted((q_ids - p_ids) - cur_seen)
+            if vanished or new:
+                by_ent.setdefault(ent, {"vanished": set(), "new": set()})
+                by_ent[ent]["vanished"].update(vanished)
+                by_ent[ent]["new"].update(new)
+    ents = {e for _, df in window_assets for e in df.entity_id.unique()}
+    for ent in ents:
+        v = sorted(by_ent.get(ent, {}).get("vanished", set()))
+        n = sorted(by_ent.get(ent, {}).get("new", set()))
+        signals[ent] = {"drift_vanished": v, "drift_new": n,
+                        "drift_n": len(v) + len(n)}
+        if v or n:
+            parts = []
+            if v:
+                parts.append(f"vanished without decommission record: {v}")
+            if n:
+                parts.append(f"new with zero monitoring: {n}")
+            out.append(_flag(c["rule_id"], ent, "Asset inventory drift: scope evasion or monitoring lag",
+                             "high" if v else "medium",
+                             "; ".join(parts) + ".",
+                             f"{len(v)} vanished + {len(n)} unmonitored-new", "stable, papered inventory",
+                             []))
+    return out, signals
+
+
+def c7_redteam(alerts: pd.DataFrame, exercises: list, cfg: dict | None = None):
+    """Red-Team Reconciliation: known attack, zero alerts = proven blind spot."""
+    c = (cfg or CFG)["C7_redteam"]
+    out, signals = [], {}
+    misses: dict = {}
+    for ex in exercises or []:
+        g = alerts[(alerts.entity_id == ex["entity_id"])
+                   & (alerts.technique_id == ex["technique_id"])
+                   & (pd.to_datetime(alerts["created_at"], format="mixed") >= pd.Timestamp(ex["start"]))
+                   & (pd.to_datetime(alerts["created_at"], format="mixed") < pd.Timestamp(ex["end"]))]
+        if len(g) == 0:
+            misses.setdefault(ex["entity_id"], []).append(ex)
+    for ent in alerts.entity_id.unique():
+        m = misses.get(ent, [])
+        signals[ent] = {"redteam_miss": bool(m)}
+        for ex in m:
+            out.append(_flag(c["rule_id"], ent, "Red-team miss: confirmed attack, zero alerts",
+                             "critical",
+                             f"NCIIPC exercise {ex['id']} ran {ex['technique_id']} against this entity "
+                             f"({ex['start']}..{ex['end']}) and the submission shows NOTHING — "
+                             "ground-truth-validated detection gap, not inference.",
+                             "0 alerts for a confirmed attack", ">=1 alert expected",
+                             []))
+    return out, signals
+
+
+# ================= meta-level forensics (SAT-X1, X2) =================
+
+def x1_digit_forensics(alerts: pd.DataFrame, cfg: dict | None = None):
+    """Digit Forensics: round-number clustering + Benford chi-square on
+    reported_minutes. Catches smoothed/fabricated submissions."""
+    from scipy.stats import chisquare
+    c = (cfg or CFG)["X1_digit_forensics"]
+    out, signals = [], {}
+    benford = np.array([np.log10(1 + 1 / d) for d in range(1, 10)])
+    for ent, g in alerts.groupby("entity_id"):
+        rep = pd.to_numeric(g.get("reported_minutes", g["handling_minutes"]),
+                            errors="coerce").dropna()
+        rep = rep[rep > 0]
+        if len(rep) < 30:
+            signals[ent] = {"round_share": 0.0, "benford_p": 1.0}
+            continue
+        first = rep.astype(int).astype(str).str[0].astype(int)
+        obs = np.array([(first == d).sum() for d in range(1, 10)], dtype=float)
+        try:
+            _, p = chisquare(obs, benford * obs.sum())
+            p = float(p)
+        except Exception:
+            p = 1.0
+        round_share = float(((rep % 10) == 0).mean())
+        signals[ent] = {"round_share": round(round_share, 3), "benford_p": p}
+        if round_share > c["round_share_threshold"]:
+            out.append(_flag(c["rule_id"], ent, "Fabricated-numbers signature in reported times",
+                             "medium",
+                             f"{round_share:.0%} of reported handling times land exactly on 10-minute marks "
+                             f"(natural ~10%; Benford chi-square p={p:.2g}) — the submission's numbers look "
+                             "smoothed or hand-filled, the way cooked ledgers do.",
+                             f"{round_share:.0%} round reported times", "~10% expected naturally",
+                             []))
+    return out, signals
+
+
+def x2_sector(alerts: pd.DataFrame, assets: pd.DataFrame, expected_map: dict,
+              sectors: dict | None, cfg: dict | None = None):
+    """Sector Dark Spots: technique expected across a sector, seen by none."""
+    c = (cfg or CFG)["X2_sector_darkspot"]
+    findings = []
+    if not sectors:
+        return findings
+    dark = _sector_dark_spots(alerts, assets, expected_map, sectors,
+                              c["min_expecting_entities"])
+    sec_ents: dict = {}
+    for e, s in sectors.items():
+        sec_ents.setdefault(s, []).append(e)
+    for (s, t), expecting in sorted(dark.items()):
+        if len(sec_ents.get(s, [])) >= c["min_sector_size"]:
+            findings.append({
+                "rule_id": c["rule_id"], "level": "sector", "sector": s,
+                "technique_id": t, "expecting": expecting,
+                "title": f"Sector dark spot: {t} unseen across {s}",
+                "evidence": f"{t} is expected by {expecting} ({s} sector) but ZERO "
+                            "entities there observed it — a systemic blind spot no "
+                            "single-entity audit could surface."})
+    return findings
+
+
+def run_all_detectors(alerts, cases, assets, expected_map, cfg=None,
+                      handoffs=None, escalations=None, sectors=None,
+                      assessment_date=None, exercises=None):
+    """Single-window engines. Returns (flags_by_entity, signals_by_entity,
+    sector_findings). Cross-window engines (C5, C6) run separately in run.py
+    and merge their flags; E12 needs an assessment_date (None = skipped)."""
     cfg = cfg or CFG
     collectors = [
         e1_sla_cliff(alerts, cfg), e2_escalation_violation(alerts, cfg),
         e3_fast_close(alerts, cfg), e4_duplicate_notes(cases, cfg),
-        e5_repeat_asset(alerts, cfg), c1_coverage_gap(alerts, assets, expected_map),
+        e5_repeat_asset(alerts, cfg),
+        e6_throughput(alerts, cfg),
+        e7_evidentiary_density(alerts, cases, cfg),
+        e8_escalation_theatre(escalations, cfg),
+        e9_bulk_burst(alerts, cfg),
+        e10_downgrade(alerts, cfg),
+        e11_hot_potato(handoffs, cfg),
+        e12_audit_theatre(alerts, assessment_date, cfg),
+        c1_coverage_gap(alerts, assets, expected_map, cfg, sectors),
         c2_silent_assets(alerts, assets), c3_volume_drop(alerts),
         c4_peer_outlier(alerts),
+        c7_redteam(alerts, exercises, cfg),
+        x1_digit_forensics(alerts, cfg),
     ]
     flags, signals = {}, {}
     for flist, slist in collectors:
@@ -284,4 +746,5 @@ def run_all_detectors(alerts, cases, assets, expected_map, cfg=None):
             flags.setdefault(f["entity_id"], []).append(f)
         for ent, s in slist.items():
             signals.setdefault(ent, {}).update(s)
-    return flags, signals
+    sector = x2_sector(alerts, assets, expected_map, sectors, cfg)
+    return flags, signals, sector
