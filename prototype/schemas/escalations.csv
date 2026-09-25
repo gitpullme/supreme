@@ -1,0 +1,3 @@
+esc_id,alert_id,entity_id,actor,opened_at,closed_at,outcome
+DEMO-0001-E,DEMO-0001,DEMO-BANK-01,an-1,2026-08-01T10:00:00,2026-08-01T13:30:00,genuine
+DEMO-0007-E,DEMO-0007,DEMO-BANK-01,an-1,2026-08-03T12:00:00,2026-08-03T15:00:00,genuine

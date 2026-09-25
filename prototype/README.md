@@ -28,6 +28,7 @@ No internet, no GPU, no API keys at runtime. Deterministic seed — same numbers
 | Ledger panel + `/api/audit` verification + confirm/dismiss feedback | REQ 13 auditability |
 | Precision 1.0 / recall 1.0, clean ranked last | PS §8 validation |
 | DuckDB + CSV adapter (`satsa/realdata.py`) + 58k alerts/s ingest | REQ 1–3 ingestion/scale |
+| Upload tab + `POST /api/ingest` (multipart CSVs → hash-seal → same pipeline) + `schemas/` samples | REQ 1–3, REQ 11–14 |
 | CPU-only container, zero runtime network | PS §5 air-gap |
 
 ## API (frozen — React builds against these)

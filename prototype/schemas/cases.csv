@@ -1,0 +1,21 @@
+case_id,entity_id,alert_id,note,investigator,closed_at
+DEMO-0001-C,DEMO-BANK-01,DEMO-0001,"Isolated DB-01, dumped LSASS-mimic process tree, captured source 10.14.2.9 host db-01.corp hash 9f2c41aa. Confirmed credential access attempt, containment done. Ref DEMO-0001.",an-1,2026-08-01T13:30:00
+DEMO-0002-C,DEMO-BANK-01,DEMO-0002,"Reviewed WAF logs for 10.14.2.20, exploit pattern matched CVE-2024-38112, blocked at edge. Ref DEMO-0002.",an-2,2026-08-01T16:45:00
+DEMO-0003-C,DEMO-BANK-01,DEMO-0003,"Benign admin PowerShell on ws-02.corp, change CHG-4401 covers it. Ref DEMO-0003.",an-1,2026-08-02T09:00:00
+DEMO-0004-C,DEMO-BANK-01,DEMO-0004,"Phishing lure from 185.22.9.4, attachment hash 77bd01cc quarantined, user warned. Ref DEMO-0004.",an-3,2026-08-02T12:00:00
+DEMO-0005-C,DEMO-BANK-01,DEMO-0005,"Routine EDR heartbeat, no action. Ref DEMO-0005.",an-2,2026-08-03T10:00:00
+DEMO-0006-C,DEMO-BANK-01,DEMO-0006,"Script alert on app-01.corp traced to deploy job, hash aa10f4e2 allowlisted. Ref DEMO-0006.",an-1,2026-08-03T18:00:00
+DEMO-0007-C,DEMO-BANK-01,DEMO-0007,"Anomalous logins on db-01.corp from 10.14.2.9, forced credential rotation, case escalated. Ref DEMO-0007.",an-1,2026-08-03T15:00:00
+DEMO-0008-C,DEMO-BANK-01,DEMO-0008,"Noise. Ref DEMO-0008.",an-3,2026-08-04T12:00:00
+DEMO-0009-C,DEMO-BANK-02,DEMO-0009,"Closed. No issue found.",an-3,2026-08-01T09:08:00
+DEMO-0010-C,DEMO-BANK-02,DEMO-0010,"Checked. All clear.",an-3,2026-08-01T09:32:00
+DEMO-0011-C,DEMO-BANK-02,DEMO-0011,"Closed. No issue found.",an-3,2026-08-01T10:11:00
+DEMO-0012-C,DEMO-BANK-02,DEMO-0012,"Reviewed and closed.",an-3,2026-08-02T08:49:00
+DEMO-0013-C,DEMO-BANK-02,DEMO-0013,"Closed. No issue found.",an-3,2026-08-02T11:21:00
+DEMO-0014-C,DEMO-BANK-02,DEMO-0014,"WAF block verified for 10.9.8.7, rule tuned. Ref DEMO-0014.",an-4,2026-08-01T18:00:00
+DEMO-0015-C,DEMO-BANK-02,DEMO-0015,"Script allowlisted on app-01.corp hash b3019d77. Ref DEMO-0015.",an-4,2026-08-02T20:00:00
+DEMO-0016-C,DEMO-BANK-02,DEMO-0016,"Benign. Ref DEMO-0016.",an-4,2026-08-02T11:00:00
+DEMO-0017-C,DEMO-BANK-02,DEMO-0017,"Noise. Ref DEMO-0017.",an-4,2026-08-03T12:00:00
+DEMO-0018-C,DEMO-BANK-02,DEMO-0018,"Connection review, normal replication traffic. Ref DEMO-0018.",an-3,2026-08-03T16:00:00
+DEMO-0019-C,DEMO-BANK-02,DEMO-0019,"Noise. Ref DEMO-0019.",an-3,2026-08-04T08:00:00
+DEMO-0020-C,DEMO-BANK-02,DEMO-0020,"Access review on db-01.corp completed, rotated svc account. Ref DEMO-0020.",an-4,2026-08-03T14:00:00

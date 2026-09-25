@@ -122,35 +122,36 @@ def main():
                {"C5_flags": sum(len(v) for v in c5_flags.values()),
                 "C6_flags": sum(len(v) for v in c6_flags.values())})
 
-    # ---- canonical window drives DB, scores, validation
+    # ---- canonical window drives DB, scores, validation (via shared pipeline)
     F = frames[CANONICAL]
     alerts, cases, assets = F["alerts"], F["cases"], F["assets"]
-    gt, flags, signals = F["gt"], {e: list(fl) for e, fl in F["flags"].items()}, F["signals"]
+    gt = F["gt"]
 
-    # Pristine per-window signals for trends (BEFORE cross-window merge below,
-    # which mutates the canonical dict — trends must stay single-window pure).
+    # Pristine per-window signals for trends (cross-window merge below must not
+    # leak into single-window trend purity).
     import copy as _copy
     pristine_signals = {lab: _copy.deepcopy(frames[lab]["signals"]) for lab in wlabels}
 
     # merge cross-window + other-window E12/C7 findings into entity flags
+    extra_flags: dict = {}
     for lab in wlabels:
         for ent, fl in frames[lab]["flags"].items():
             for f in fl:
                 if f["rule_id"] in ("SAT-E12", "SAT-C7") and lab != CANONICAL:
                     g = dict(f)
                     g["window"] = lab
-                    flags.setdefault(ent, []).append(g)
+                    extra_flags.setdefault(ent, []).append(g)
     for src in (c5_flags, c6_flags):
         for ent, fl in src.items():
             for f in fl:
                 g = dict(f)
                 g["window"] = "cross-window"
-                flags.setdefault(ent, []).append(g)
-    # merge cross-window SIGNALS into canonical signals before scoring
-    for ent, s in c5_signals.items():
-        signals.setdefault(ent, {}).update(s)
-    for ent, s in c6_signals.items():
-        signals.setdefault(ent, {}).update(s)
+                extra_flags.setdefault(ent, []).append(g)
+    # merge cross-window SIGNALS before scoring
+    extra_signals: dict = {}
+    for src in (c5_signals, c6_signals):
+        for ent, s in src.items():
+            extra_signals.setdefault(ent, {}).update(s)
 
     ing_hash = init_and_ingest(DB, alerts, cases, assets,
                                F["handoffs"], F["escalations"])
@@ -159,18 +160,18 @@ def main():
                                       "handoffs": len(F["handoffs"]),
                                       "escalations": len(F["escalations"])},
                              "sha256": ing_hash, "source": "synthetic-seed-42"})
-    led.append("model_version", {"version": MODEL_VERSION})
-    led.append("detection", {"n_flags": sum(len(v) for v in flags.values()),
-                             "engines": ["E1-E12", "C1-C7", "X1-X2"],
-                             "rule_pack_sha": cfg_hash})
-    scores = score_entities(signals)
-    led.append("scoring", {"scores": scores})
+    led.append("model_version", {"version": MODEL_VERSION,
+                                 "rule_pack_sha": cfg_hash})
 
-    explanations = train_explain(alerts)
-    led.append("explanation_model", explanations["model"])
-
-    metrics = validate(scores, flags, gt)
-    led.append("validation", metrics)
+    from satsa.pipeline import run_assessment
+    from satsa.generator import SECTORS as _SECTORS
+    res = run_assessment(alerts, cases, assets, F["handoffs"], F["escalations"],
+                         cfg, expected_map, _SECTORS, None,
+                         _exercises_for("2026-06-01"), gt,
+                         extra_flags=extra_flags, extra_signals=extra_signals,
+                         ledger=led)
+    scores, signals, flags = res["scores"], res["signals"], res["flags"]
+    explanations, metrics = res["explanations"], res["metrics"]
 
     # sector findings (X2): dedupe across windows by (sector, technique)
     seen, sector_findings = set(), []

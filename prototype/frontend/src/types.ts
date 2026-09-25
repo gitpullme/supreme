@@ -84,23 +84,44 @@ export interface AuditResponse {
 }
 
 export interface PatternCheck {
-  expected: string;
+  expected: string | string[];
   pass: boolean;
+  missing?: string[];
   fired: string[];
 }
 
+export interface SectorFinding {
+  rule_id: string;
+  sector: string;
+  technique_id: string;
+  expecting: string[];
+  title: string;
+  evidence: string;
+}
+
 export interface ValidateResponse {
-  precision: number;
-  recall: number;
-  ranked: string[];
-  tool_top3: string[];
-  manual_top3: string[];
-  top3_overlap: string;
+  precision: number | null;
+  recall: number | null;
+  ranked?: string[];
+  tool_top3?: string[];
+  manual_top3?: string[];
+  top3_overlap?: string;
+  note?: string;
   risky_above_clean?: boolean;
   tp?: number;
   fp?: number;
   fn?: number;
-  pattern_checks: Record<string, PatternCheck>;
+  pattern_checks?: Record<string, PatternCheck>;
+  sector_findings?: SectorFinding[];
+}
+
+export interface IngestResponse {
+  status: string;
+  entities: number;
+  n_flags: number;
+  ranked: string[];
+  metrics: ValidateResponse | null;
+  sector_count: number;
 }
 
 export interface TrendsResponse {
@@ -113,4 +134,4 @@ export interface FeedbackResponse {
   ledger?: unknown;
 }
 
-export type View = 'triage' | 'entity' | 'trends' | 'audit' | 'validate';
+export type View = 'triage' | 'entity' | 'trends' | 'audit' | 'validate' | 'upload';

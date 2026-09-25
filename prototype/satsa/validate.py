@@ -38,6 +38,9 @@ def validate(scores: dict, flags: dict, ground_truth: dict, top_n: int = 3) -> d
 
     # pattern -> detector expectations (lists: every listed rule must fire).
     # Cross-window findings (E12/C5/C6/C7) are merged into flags by run.py.
+    # Seeded-suite expectations apply only when those entities exist; any OTHER
+    # ground-truth entity (e.g. inspector uploads) gets a generic check:
+    # risky ⇒ at least one high/critical flag, clean ⇒ none.
     rule_ids = {e: {f["rule_id"] for f in flags.get(e, [])} for e in entities}
     expectations = {
         "CSE-002": ["SAT-E1", "SAT-E9", "SAT-X1", "SAT-E12"],
@@ -47,12 +50,17 @@ def validate(scores: dict, flags: dict, ground_truth: dict, top_n: int = 3) -> d
         "CSE-001": None,  # clean: expect no high/critical flags
     }
     pattern_checks = {}
-    for ent, wants in expectations.items():
-        if wants is None:
-            bad = [f for f in flags.get(ent, [])
-                   if f["severity"] in ("high", "critical")]
+    for ent in entities:
+        wants = expectations.get(ent, "GENERIC")
+        hot = [f for f in flags.get(ent, [])
+               if f["severity"] in ("high", "critical")]
+        if wants is None or (wants == "GENERIC" and not true_risky[ent]):
             pattern_checks[ent] = {"expected": "no high/critical flags",
-                                   "pass": len(bad) == 0,
+                                   "pass": len(hot) == 0,
+                                   "fired": sorted(rule_ids.get(ent, set()))}
+        elif wants == "GENERIC":
+            pattern_checks[ent] = {"expected": ">=1 high/critical flag (risky entity)",
+                                   "pass": len(hot) > 0,
                                    "fired": sorted(rule_ids.get(ent, set()))}
         else:
             fired = rule_ids.get(ent, set())

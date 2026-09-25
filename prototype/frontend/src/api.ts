@@ -6,6 +6,7 @@ import type {
   FeedbackResponse,
   FlagsResponseAll,
   FlagsResponseEntity,
+  IngestResponse,
   TrendsResponse,
   ValidateResponse,
 } from './types';
@@ -84,6 +85,22 @@ export async function postFeedback(body: {
     );
   }
   return (await res.json()) as FeedbackResponse;
+}
+
+export async function postIngest(form: FormData): Promise<IngestResponse> {
+  const res = await fetch('/api/ingest', { method: 'POST', body: form });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      `Ingest failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 300)}` : ''}`,
+    );
+  }
+  return (await res.json()) as IngestResponse;
 }
 
 export function httpStatus(e: unknown): number | undefined {

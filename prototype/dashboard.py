@@ -111,6 +111,10 @@ def sector_panel(sector: list | None) -> str:
 
 def build_dashboard_html(scores, flags, signals, metrics, ledger_tail,
                          trends=None, explanations=None, sector=None) -> str:
+    if metrics is None:
+        metrics = {"precision": "n/a", "recall": "n/a", "ranked": sorted(scores),
+                   "tool_top3": [], "manual_top3": [], "top3_overlap": "n/a",
+                   "pattern_checks": {}}  # uploaded assessment, no ground truth
     rows = []
     for ent in sorted(scores):
         s = scores[ent]

@@ -6,6 +6,7 @@ pyyaml>=6.0
 duckdb>=0.9
 fastapi>=0.104
 uvicorn>=0.24
+python-multipart>=0.0.9
 matplotlib>=3.7
 xgboost>=2.0
 shap>=0.45

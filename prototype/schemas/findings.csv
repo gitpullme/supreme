@@ -1,0 +1,4 @@
+entity_id,pattern,alert_ids
+DEMO-BANK-01,clean,
+DEMO-BANK-02,critical-no-escalation,DEMO-0009;DEMO-0010;DEMO-0011;DEMO-0012;DEMO-0013
+DEMO-BANK-02,fast-close,DEMO-0009;DEMO-0010;DEMO-0011;DEMO-0012;DEMO-0013

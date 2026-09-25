@@ -25,23 +25,37 @@ export default function ValidateView() {
   if (!data) return <div className="loading">Loading validation…</div>;
 
   const checks = Object.entries(data.pattern_checks ?? {});
+  const novalidation = data.precision == null;
+
+  const fmt = (v: number | null) =>
+    v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(2);
 
   return (
     <div>
+      {novalidation && (
+        <div className="card">
+          <h2>No ground truth for this assessment</h2>
+          <div className="muted">
+            {data.note ??
+              'Upload findings.csv with the submission to validate against manual review.'}{' '}
+            Triage, flags and audit are unaffected.
+          </div>
+        </div>
+      )}
       <div className="card">
         <h2>Validation vs manual review</h2>
         <div className="score-cards">
           <div className="score-card">
             <div className="k">Precision</div>
-            <div className="v">{Number(data.precision).toFixed(2)}</div>
+            <div className="v">{fmt(data.precision)}</div>
           </div>
           <div className="score-card">
             <div className="k">Recall</div>
-            <div className="v">{Number(data.recall).toFixed(2)}</div>
+            <div className="v">{fmt(data.recall)}</div>
           </div>
           <div className="score-card">
             <div className="k">Top-3 overlap</div>
-            <div className="v">{data.top3_overlap}</div>
+            <div className="v">{data.top3_overlap ?? '—'}</div>
           </div>
           {data.tp !== undefined && (
             <div className="score-card">
@@ -70,27 +84,56 @@ export default function ValidateView() {
         <div className="card">
           <h2>Ranked (tool)</h2>
           <ol className="mono">
-            {data.ranked.map((id) => (
+            {(data.ranked ?? []).map((id) => (
               <li key={id}>{id}</li>
             ))}
           </ol>
           <div className="muted">
-            Tool top-3: <span className="mono">{data.tool_top3.join(', ')}</span>
+            Tool top-3:{' '}
+            <span className="mono">{(data.tool_top3 ?? []).join(', ') || '—'}</span>
           </div>
         </div>
         <div className="card">
           <h2>Manual review top-3</h2>
           <ol className="mono">
-            {data.manual_top3.map((id) => (
+            {(data.manual_top3 ?? []).map((id) => (
               <li key={id}>{id}</li>
             ))}
           </ol>
           <div className="muted">
-            Overlap with tool: <b>{data.top3_overlap}</b> (ordering gap, not a
+            Overlap with tool: <b>{data.top3_overlap ?? '—'}</b> (ordering gap, not a
             miss — tool ranks by severity, manual list by review order).
           </div>
         </div>
       </div>
+
+      {(data.sector_findings ?? []).length > 0 && (
+        <div className="card">
+          <h2>Sector dark spots (X2)</h2>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Sector</th>
+                  <th>Technique</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.sector_findings ?? []).map((f, i) => (
+                  <tr key={`${f.sector}-${f.technique_id}-${i}`}>
+                    <td className="mono">{f.sector}</td>
+                    <td>
+                      <span className="badge high">{f.technique_id}</span>
+                    </td>
+                    <td>{f.evidence}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h2>Pattern checks</h2>
@@ -108,7 +151,12 @@ export default function ValidateView() {
               {checks.map(([entity, c]) => (
                 <tr key={entity}>
                   <td className="mono">{entity}</td>
-                  <td className="mono">{c.expected}</td>
+                  <td className="mono">
+                    {Array.isArray(c.expected) ? c.expected.join(' + ') : c.expected}
+                    {c.missing && c.missing.length > 0 && (
+                      <span className="fail"> missing: {c.missing.join(', ')}</span>
+                    )}
+                  </td>
                   <td className="mono">{(c.fired ?? []).join(', ') || '—'}</td>
                   <td>
                     {c.pass ? (

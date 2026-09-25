@@ -55,6 +55,13 @@ def _default(col: str, n: int):
     }.get(col, np.nan)
 
 
+def attach_assets(alerts: pd.DataFrame, assets: pd.DataFrame) -> pd.DataFrame:
+    """Join inventory criticality/role onto alerts (detectors read them there)."""
+    a = alerts.drop(columns=[c for c in ("criticality", "role") if c in alerts.columns])
+    return a.merge(assets[["asset_id", "entity_id", "criticality", "role"]].drop_duplicates(),
+                   on=["asset_id", "entity_id"], how="left")
+
+
 def load_manual_findings(path: str) -> dict:
     """CSV with columns: entity_id, pattern, alert_ids (semicolon-separated, optional).
     Returns the same ground_truth shape the generator emits:

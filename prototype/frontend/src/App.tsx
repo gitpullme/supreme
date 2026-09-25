@@ -6,6 +6,7 @@ import EntityView from './views/EntityView';
 import TrendsView from './views/TrendsView';
 import AuditView from './views/AuditView';
 import ValidateView from './views/ValidateView';
+import UploadView from './views/UploadView';
 
 function UtcClock() {
   const [now, setNow] = useState(() => new Date());
@@ -32,6 +33,16 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
+    loadAll(alive);
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function loadAll(alive = true) {
+    setEntitiesError(null);
+    setValidateError(null);
     getEntities()
       .then((d) => {
         if (alive) setEntities(d.entities ?? []);
@@ -60,9 +71,12 @@ export default function App() {
       .catch(() => {
         if (alive) setTrendsAvailable(false);
       });
-    return () => {
-      alive = false;
-    };
+  }
+
+  const afterUpload = useCallback(() => {
+    setSelectedId(null);
+    loadAll(true);
+    setView('triage');
   }, []);
 
   const openEntity = useCallback((id: string) => {
@@ -85,13 +99,23 @@ export default function App() {
           {validate ? (
             <>
               <span className="chip ok">
-                PREC <b>{Number(validate.precision).toFixed(2)}</b>
+                PREC{' '}
+                <b>
+                  {validate.precision == null
+                    ? '—'
+                    : Number(validate.precision).toFixed(2)}
+                </b>
               </span>
               <span className="chip ok">
-                REC <b>{Number(validate.recall).toFixed(2)}</b>
+                REC{' '}
+                <b>
+                  {validate.recall == null
+                    ? '—'
+                    : Number(validate.recall).toFixed(2)}
+                </b>
               </span>
               <span className="chip">
-                TOP-3 <b>{validate.top3_overlap}</b>
+                TOP-3 <b>{validate.top3_overlap ?? '—'}</b>
               </span>
             </>
           ) : validateError ? (
@@ -137,6 +161,12 @@ export default function App() {
         >
           Validate
         </button>
+        <button
+          className={view === 'upload' ? 'active' : ''}
+          onClick={() => setView('upload')}
+        >
+          Upload
+        </button>
       </nav>
 
       {entitiesError && <div className="err">{entitiesError}</div>}
@@ -157,6 +187,7 @@ export default function App() {
       {view === 'trends' && <TrendsView key="trends" />}
       {view === 'audit' && <AuditView key="audit" />}
       {view === 'validate' && <ValidateView key="validate" />}
+      {view === 'upload' && <UploadView key="upload" onDone={afterUpload} />}
 
       <div className="footer">
         SAT-SA · SUPERVISORY CONSOLE v0.3 · SAME-ORIGIN /API · NO EXTERNAL
