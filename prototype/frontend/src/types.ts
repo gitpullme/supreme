@@ -116,12 +116,33 @@ export interface ValidateResponse {
 }
 
 export interface IngestResponse {
-  status: string;
-  entities: number;
-  n_flags: number;
-  ranked: string[];
-  metrics: ValidateResponse | null;
-  sector_count: number;
+  job_id: string;
+  status_url: string;
+}
+
+export interface JobLogLine {
+  t: string;
+  stage: string;
+  pct: number;
+  detail: string;
+}
+
+export interface JobStatus {
+  job_id: string;
+  state: 'queued' | 'running' | 'done' | 'error';
+  pct: number;
+  stage: string;
+  detail: string;
+  log: JobLogLine[];
+  result: {
+    status: string;
+    entities: number;
+    n_flags: number;
+    ranked: string[];
+    metrics: ValidateResponse | null;
+    sector_count: number;
+  } | null;
+  error: string | null;
 }
 
 export interface TrendsResponse {

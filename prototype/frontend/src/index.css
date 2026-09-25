@@ -464,6 +464,18 @@ table.tbl tr.selected td {
   background: var(--slate);
 }
 
+/* Standalone progress bar (upload): same instrument language as contrib bars. */
+.bar {
+  height: 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.bar .fill-e {
+  height: 100%;
+  background: var(--amber);
+}
+
 .flag {
   border: 1px solid var(--border);
   border-left: 2px solid var(--amber-dim);

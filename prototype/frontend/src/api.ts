@@ -7,6 +7,7 @@ import type {
   FlagsResponseAll,
   FlagsResponseEntity,
   IngestResponse,
+  JobStatus,
   TrendsResponse,
   ValidateResponse,
 } from './types';
@@ -88,8 +89,9 @@ export async function postFeedback(body: {
 }
 
 export async function postIngest(form: FormData): Promise<IngestResponse> {
+  // Background job: 202 + job_id immediately, result arrives via polling.
   const res = await fetch('/api/ingest', { method: 'POST', body: form });
-  if (!res.ok) {
+  if (res.status !== 202) {
     let detail = '';
     try {
       detail = await res.text();
@@ -97,10 +99,46 @@ export async function postIngest(form: FormData): Promise<IngestResponse> {
       /* ignore */
     }
     throw new Error(
-      `Ingest failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 300)}` : ''}`,
+      `Ingest rejected (HTTP ${res.status})${detail ? `: ${detail.slice(0, 300)}` : ''}`,
     );
   }
   return (await res.json()) as IngestResponse;
+}
+
+export function uploadWithProgress(
+  form: FormData,
+  onBytes: (loaded: number, total: number) => void,
+): Promise<IngestResponse> {
+  // XMLHttpRequest: the ONLY way to get real byte-level upload progress.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/ingest');
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onBytes(e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status === 202) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as IngestResponse);
+        } catch {
+          reject(new Error('Unparseable job response'));
+        }
+      } else {
+        reject(
+          new Error(
+            `Ingest rejected (HTTP ${xhr.status}): ${xhr.responseText.slice(0, 300)}`,
+          ),
+        );
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload transport failed'));
+    xhr.send(form);
+  });
+}
+
+export function getJob(jobId: string): Promise<JobStatus> {
+  return fetchJson<JobStatus>(`/api/jobs/${encodeURIComponent(jobId)}`);
 }
 
 export function httpStatus(e: unknown): number | undefined {
