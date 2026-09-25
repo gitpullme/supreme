@@ -166,7 +166,12 @@ def e5_repeat_asset(alerts: pd.DataFrame, cfg: dict | None = None):
         hits_hot, hits_vol = [], []
         for k, v in grp:
             n_hot = int(v.severity.isin(["high", "critical"]).sum())
-            if len(v) < c["repeat_min"] or v.escalated.astype(bool).any():
+            if len(v) < c["repeat_min"]:
+                continue
+            # Remediation means the pair STOPS: <10% ever escalated counts as
+            # unremediated (a lone escalation among dozens of repeat firings
+            # is not a fix — same doctrine as C5 decay).
+            if v.escalated.astype(bool).mean() >= 0.10:
                 continue
             # Hot pattern = recurring failure on the SAME weakness with no learning.
             if n_hot >= c["min_hot"]:
@@ -180,7 +185,7 @@ def e5_repeat_asset(alerts: pd.DataFrame, cfg: dict | None = None):
             out.append(_flag(c["rule_id"], ent, "Repeat alerts, same asset+technique, no remediation",
                              "high" if len(hits_hot) >= c["high_groups_threshold"] else "medium",
                              f"{len(hits_hot)} hot (asset, technique) pairs re-fired >= {c['repeat_min']}x "
-                             f"with >= {c['min_hot']} high/critical and zero escalation/remediation — root cause never addressed."
+                             f"with >= {c['min_hot']} high/critical and <10% ever escalated — root cause never addressed."
                              + (f" (+{len(hits_vol)} low-severity volume recurrences)" if hits_vol else ""),
                              f"{len(hits_hot)} unremediated hot repeat clusters", "0 expected",
                              recs))
