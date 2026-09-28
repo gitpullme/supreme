@@ -68,7 +68,7 @@ Execution gaps are table stakes. Our moat is the harder half — **absence as ev
 | Clean control (CSE-001 / DEMO-BANK-01) | **CLEAR, zero flags, ranked last** |
 | Pattern checks | **14/14 PASS** — every detector fires on its intended entity |
 | Sector findings | 4 dark spots (banking + energy × T1071/T1558) |
-| Ingest / detection | 58,420 alerts/s · 0.12 s/entity · ~400 s per 1M alerts, CPU-only |
+| Ingest / detection | 58k alerts/s ingest · 70k alerts/s hash-seal · full 22-engine pass ~40 s per 15k rows, CPU-only |
 | Determinism | bit-identical across runs (seeded) |
 
 ---

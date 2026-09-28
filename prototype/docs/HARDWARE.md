@@ -27,9 +27,17 @@ DuckDB (embedded, zero-config) → PostgreSQL by changing the store layer only;
 all detector SQL is portable. Container image is CPU-only `python:3.12-slim`.
 Multi-node future: same ledger event schema ports to Hyperledger Fabric.
 
-## Measured performance (`python perf_bench.py 20`, this box, 30,320 alerts / 100 entities)
+## Measured performance (this box, CPU-only, single process)
 
+`perf_bench.py` (30,320 alerts / 100 entities, ingestion path):
 - Ingest (DuckDB): 0.5 s — 58,420 alerts/s
-- Full detection + EIS/CAS: 12.1 s — 2,515 alerts/s, 0.12 s/entity
-- Extrapolated 1M-alert window, single process, no tuning: ~400 s
-- Bottleneck is per-entity TF-IDF (E4); embarrassingly parallel across entities.
+- Hash-seal (SHA-256 over all 5 tables): 0.21 s for 14,782 alerts — ~70,000 alerts/s
+
+Full 22-engine detection on the 14,782-alert demo package (6 banks):
+- Total ~28 s (~530 alerts/s). Per-engine: E4 TF-IDF 23.5 s (84% — pairwise
+  cosine per entity), E11 handoffs 3.2 s, E1 row-loop 0.8 s, E7 0.2 s,
+  everything else <0.05 s each.
+- End-to-end upload (parse → seal → 22 engines → SHAP → write): ~40 s.
+- 1M-alert extrapolation, single process: ~30 min. Every per-entity engine is
+  independent, so 8-way parallelism → ~4–5 min. E4 is the parallelization
+  priority (see below).
